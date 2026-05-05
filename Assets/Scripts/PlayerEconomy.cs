@@ -7,6 +7,22 @@ namespace AutoChess
         [Header("Starting state")]
         [Min(0)] public int gold = 10;
         [Min(2)] public int level = 2;
+        [Min(1)] public int maxHP = 20;
+
+        public int hp { get; private set; }
+
+        public bool IsDead => hp <= 0;
+
+        void Awake()
+        {
+            hp = maxHP;
+        }
+
+        public void TakeDamage(int amount)
+        {
+            if (amount <= 0) return;
+            hp = Mathf.Max(0, hp - amount);
+        }
 
         public static readonly int[] LevelUpCosts = { 4, 8, 12, 20, 32 };
 

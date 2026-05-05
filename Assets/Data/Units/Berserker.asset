@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6fdc32ed8ef1dc442a5f03cc1a14f4b1, type: 3}
   m_Name: Berserker
   m_EditorClassIdentifier: Assembly-CSharp::AutoChess.UnitData
-  displayName: Unnamed
+  displayName: Berserker
   unitClass: 0
-  unitType: 0
-  cost: 1
-  maxHealth: 100
-  attackDamage: 10
+  unitType: 1
+  cost: 2
+  maxHealth: 90
+  attackDamage: 18
   attackRange: 1
-  attackSpeed: 1
-  moveSpeed: 2
-  displayColor: {r: 1, g: 1, b: 1, a: 1}
+  attackSpeed: 0.9
+  moveSpeed: 2.5
+  displayColor: {r: 0.7830189, g: 0.29178533, b: 0.29178533, a: 1}

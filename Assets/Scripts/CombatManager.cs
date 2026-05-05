@@ -29,6 +29,10 @@ namespace AutoChess
             CollectPlayerUnits();
             SpawnEnemies(round);
 
+            // Synergies must be applied before OnCombatStart so currentHealth uses buffed MaxHealth.
+            var synergies = SynergyEngine.Compute(playerUnits);
+            SynergyEngine.Apply(playerUnits, synergies);
+
             allUnits.Clear();
             allUnits.AddRange(playerUnits);
             allUnits.AddRange(enemyUnits);
@@ -74,9 +78,23 @@ namespace AutoChess
                 go.transform.SetParent(grid.transform, false);
                 var unit = go.AddComponent<Unit>();
                 unit.Initialize(data, Team.Enemy);
+
+                int targetTier = RollEnemyTier(round);
+                while (unit.tier < targetTier) unit.Upgrade();
+
                 unit.PlaceOnTile(tile);
                 enemyUnits.Add(unit);
             }
+        }
+
+        static int RollEnemyTier(int round)
+        {
+            float t3 = Mathf.Clamp((round - 6) * 0.05f, 0f, 0.25f);
+            float t2 = Mathf.Clamp((round - 3) * 0.10f, 0f, 0.50f);
+            float r = Random.value;
+            if (r < t3) return 3;
+            if (r < t3 + t2) return 2;
+            return 1;
         }
 
         void Update()
@@ -112,8 +130,13 @@ namespace AutoChess
             inCombat = false;
 
             int kills = 0;
+            int survivorTierSum = 0;
             foreach (var u in enemyUnits)
-                if (u != null && !u.IsAlive) kills++;
+            {
+                if (u == null) continue;
+                if (!u.IsAlive) kills++;
+                else survivorTierSum += u.tier;
+            }
 
             bool playerSurvived = AnyAlive(playerUnits);
             bool enemyEliminated = !AnyAlive(enemyUnits);
@@ -126,6 +149,7 @@ namespace AutoChess
             foreach (var u in playerUnits)
             {
                 if (u == null) continue;
+                u.ClearCombatBuffs();
                 Tile home = null;
                 if (playerHomes.TryGetValue(u, out var pos))
                     home = grid.GetTile(pos.x, pos.y);
@@ -135,7 +159,7 @@ namespace AutoChess
             playerHomes.Clear();
             allUnits.Clear();
 
-            if (rounds != null) rounds.OnBattleEnded(won, kills);
+            if (rounds != null) rounds.OnBattleEnded(won, kills, survivorTierSum);
         }
     }
 }

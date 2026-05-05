@@ -15,10 +15,10 @@ MonoBehaviour:
   displayName: Bear
   unitClass: 0
   unitType: 0
-  cost: 1
-  maxHealth: 100
-  attackDamage: 10
+  cost: 3
+  maxHealth: 150
+  attackDamage: 14
   attackRange: 1
-  attackSpeed: 1
-  moveSpeed: 2
-  displayColor: {r: 1, g: 1, b: 1, a: 1}
+  attackSpeed: 0.6
+  moveSpeed: 1.8
+  displayColor: {r: 0.2924528, g: 0.18522042, b: 0.13656995, a: 1}

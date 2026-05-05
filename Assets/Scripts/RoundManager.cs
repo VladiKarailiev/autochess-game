@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace AutoChess
 {
@@ -16,17 +17,21 @@ namespace AutoChess
         public int baseReward = 5;
         public int winBonus = 1;
 
+        [Header("Damage tuning (loss)")]
+        public int baseLossDamage = 2;
+
         [Header("Pacing")]
         public float resultDelay = 2.5f;
 
         public GamePhase Phase { get; private set; } = GamePhase.Prep;
 
-        public int  LastReward   { get; private set; }
-        public int  LastBase     { get; private set; }
-        public int  LastWin      { get; private set; }
-        public int  LastKills    { get; private set; }
-        public int  LastInterest { get; private set; }
-        public bool LastWon      { get; private set; }
+        public int  LastReward       { get; private set; }
+        public int  LastBase         { get; private set; }
+        public int  LastWin          { get; private set; }
+        public int  LastKills        { get; private set; }
+        public int  LastInterest     { get; private set; }
+        public int  LastDamageTaken  { get; private set; }
+        public bool LastWon          { get; private set; }
 
         void Start()
         {
@@ -42,21 +47,35 @@ namespace AutoChess
             combat.StartBattle(round);
         }
 
-        public void OnBattleEnded(bool won, int kills)
+        public void OnBattleEnded(bool won, int kills, int survivorTierSum)
         {
             int interest = economy.Interest;
             int winB     = won ? winBonus : 0;
             int killB    = kills;
             int total    = baseReward + winB + killB + interest;
-
             economy.Gain(total);
 
-            LastBase     = baseReward;
-            LastWin      = winB;
-            LastKills    = kills;
-            LastInterest = interest;
-            LastReward   = total;
-            LastWon      = won;
+            int dmg = 0;
+            if (!won)
+            {
+                dmg = baseLossDamage + survivorTierSum;
+                economy.TakeDamage(dmg);
+                CameraShake.Trigger(0.4f);
+            }
+
+            LastBase        = baseReward;
+            LastWin         = winB;
+            LastKills       = kills;
+            LastInterest    = interest;
+            LastReward      = total;
+            LastDamageTaken = dmg;
+            LastWon         = won;
+
+            if (economy.IsDead)
+            {
+                Phase = GamePhase.GameOver;
+                return;
+            }
 
             Phase = GamePhase.Result;
             StartCoroutine(NextRoundAfterDelay(resultDelay));
@@ -68,6 +87,11 @@ namespace AutoChess
             round++;
             shop?.Roll();
             Phase = GamePhase.Prep;
+        }
+
+        public void Restart()
+        {
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
     }
 }

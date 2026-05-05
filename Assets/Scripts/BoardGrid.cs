@@ -13,10 +13,6 @@ namespace AutoChess
         [Min(0.1f)] public float tileSize = 1f;
         [Range(0f, 0.2f)] public float tileGap = 0.05f;
 
-        [Header("Layout")]
-        public float topShift = 1.5f;
-        [Min(0f)] public float benchGap = 0.4f;
-
         [Header("Tile Colors")]
         public Color playerColorA = new Color(0.85f, 0.85f, 0.85f);
         public Color playerColorB = new Color(0.65f, 0.65f, 0.65f);
@@ -85,12 +81,9 @@ namespace AutoChess
         public Vector3 GridToLocal(int x, int y)
         {
             int total = TotalRows;
-            float totalHeight = (total - 1) * tileSize + benchGap;
             float offsetX = -(columns - 1) * 0.5f * tileSize;
-            float offsetY = topShift - totalHeight * 0.5f;
-
-            float yPos = y * tileSize + (y >= benchRows ? benchGap : 0f);
-            return new Vector3(offsetX + x * tileSize, offsetY + yPos, 0f);
+            float offsetY = -(total - 1) * 0.5f * tileSize;
+            return new Vector3(offsetX + x * tileSize, offsetY + y * tileSize, 0f);
         }
 
         public Vector3 GridToWorld(Vector2Int gridPos)

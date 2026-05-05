@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6fdc32ed8ef1dc442a5f03cc1a14f4b1, type: 3}
   m_Name: Knight
   m_EditorClassIdentifier: Assembly-CSharp::AutoChess.UnitData
-  displayName: Unnamed
+  displayName: Knight
   unitClass: 0
   unitType: 0
   cost: 1
-  maxHealth: 100
+  maxHealth: 120
   attackDamage: 10
   attackRange: 1
-  attackSpeed: 1
+  attackSpeed: 0.7
   moveSpeed: 2
-  displayColor: {r: 1, g: 1, b: 1, a: 1}
+  displayColor: {r: 0.17853329, g: 0.4622013, b: 0.6415094, a: 1}

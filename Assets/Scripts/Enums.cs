@@ -30,5 +30,6 @@ namespace AutoChess
         Prep,
         Combat,
         Result,
+        GameOver,
     }
 }

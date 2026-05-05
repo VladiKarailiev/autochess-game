@@ -7,8 +7,8 @@ namespace AutoChess
     {
         public BoardGrid grid;
         public PlayerEconomy economy;
-        public Shop shop;
         public RoundManager rounds;
+        public Inspector inspector;
         public Camera worldCamera;
 
         Unit dragging;
@@ -19,10 +19,30 @@ namespace AutoChess
             if (worldCamera == null) worldCamera = Camera.main;
         }
 
+        void OnEnable()
+        {
+            if (inspector == null)
+                Debug.LogWarning("DragController: Inspector reference is not assigned. " +
+                                 "Right-click will do nothing. Drag the Inspector component " +
+                                 "into DragController.Inspector in the Unity Inspector.");
+        }
+
         void Update()
         {
             if (grid == null || worldCamera == null) return;
-            if (rounds != null && rounds.Phase != GamePhase.Prep)
+            bool inPrep = rounds == null || rounds.Phase == GamePhase.Prep;
+
+            var mouse = Mouse.current;
+            if (mouse == null) return;
+
+            Vector3 worldPos = ScreenToWorld(mouse.position.ReadValue());
+
+            // Right-click is always inspect (works in any phase).
+            if (mouse.rightButton.wasPressedThisFrame && dragging == null)
+                TryInspect(worldPos);
+
+            // Drag is only allowed in Prep.
+            if (!inPrep)
             {
                 if (dragging != null)
                 {
@@ -32,14 +52,6 @@ namespace AutoChess
                 }
                 return;
             }
-
-            var mouse = Mouse.current;
-            if (mouse == null) return;
-
-            Vector3 worldPos = ScreenToWorld(mouse.position.ReadValue());
-
-            if (mouse.rightButton.wasPressedThisFrame && dragging == null)
-                TrySell(worldPos);
 
             if (mouse.leftButton.wasPressedThisFrame)
                 TryStartDrag(worldPos);
@@ -103,13 +115,16 @@ namespace AutoChess
             return grid.CountPlayerCombatUnits() < economy.level;
         }
 
-        void TrySell(Vector3 worldPos)
+        void TryInspect(Vector3 worldPos)
         {
-            if (shop == null) return;
+            if (inspector == null) return;
             Tile tile = grid.WorldToTile(worldPos);
-            if (tile == null || tile.occupant == null) return;
-            if (tile.occupant.team != Team.Player) return;
-            shop.Sell(tile.occupant);
+            if (tile == null || tile.occupant == null)
+            {
+                inspector.Clear();
+                return;
+            }
+            inspector.Toggle(tile.occupant);
         }
     }
 }

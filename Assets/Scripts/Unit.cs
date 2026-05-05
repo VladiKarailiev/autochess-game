@@ -19,6 +19,14 @@ namespace AutoChess
 
         float hpMultiplier = 1f;
         float damageMultiplier = 1f;
+        float attackSpeedMultiplier = 1f;
+
+        Color baseColor = Color.white;
+        float hitFlashTimer;
+
+        public static event System.Action<Unit, float> Damaged;
+        public static event System.Action<Unit> Died;
+        public static event System.Action<Unit> Upgraded;
 
         public Tile CurrentTile => currentTile;
         public bool IsAlive => currentHealth > 0f;
@@ -29,6 +37,9 @@ namespace AutoChess
 
         public float AttackDamage =>
             data != null ? data.attackDamage * TierStatMultiplier(tier) * damageMultiplier : 0f;
+
+        public float AttackInterval =>
+            data != null ? 1f / Mathf.Max(0.01f, data.attackSpeed * attackSpeedMultiplier) : 1f;
 
         public int SellValue
         {
@@ -81,17 +92,53 @@ namespace AutoChess
             tier++;
             if (spriteRenderer != null) ApplyData();
             currentHealth = MaxHealth;
+            FlashColor(new Color(1f, 0.9f, 0.3f), 0.25f);
+            Upgraded?.Invoke(this);
+        }
+
+        void FlashColor(Color flash, float duration)
+        {
+            if (spriteRenderer == null) return;
+            spriteRenderer.color = flash;
+            hitFlashTimer = duration;
+        }
+
+        void Update()
+        {
+            if (hitFlashTimer > 0f)
+            {
+                hitFlashTimer -= Time.deltaTime;
+                if (hitFlashTimer <= 0f && spriteRenderer != null && spriteRenderer.enabled)
+                    spriteRenderer.color = baseColor;
+            }
+        }
+
+        public void ApplyCombatBuffs(float hpMult, float dmgMult, float aspdMult)
+        {
+            hpMultiplier = hpMult;
+            damageMultiplier = dmgMult;
+            attackSpeedMultiplier = aspdMult;
+        }
+
+        public void ClearCombatBuffs()
+        {
+            hpMultiplier = 1f;
+            damageMultiplier = 1f;
+            attackSpeedMultiplier = 1f;
         }
 
         void ApplyData()
         {
             if (data == null) return;
 
-            Color baseColor = data.displayColor;
+            Color displayBase = data.displayColor;
             Color final = team == Team.Enemy
-                ? Color.Lerp(baseColor, new Color(0.95f, 0.15f, 0.15f), 0.55f)
-                : baseColor;
-            spriteRenderer.color = final;
+                ? Color.Lerp(displayBase, new Color(0.95f, 0.15f, 0.15f), 0.55f)
+                : displayBase;
+            baseColor = final;
+
+            // Don't override an in-progress hit flash visual.
+            if (hitFlashTimer <= 0f) spriteRenderer.color = final;
 
             float tierScale = tier switch { 2 => 1.15f, 3 => 1.35f, _ => 1f };
             transform.localScale = Vector3.one * visualScale * tierScale;
@@ -137,7 +184,7 @@ namespace AutoChess
                 if (attackCooldownRemaining <= 0f)
                 {
                     currentTarget.TakeDamage(AttackDamage);
-                    attackCooldownRemaining = 1f / Mathf.Max(0.01f, data.attackSpeed);
+                    attackCooldownRemaining = AttackInterval;
                 }
             }
             else
@@ -171,9 +218,12 @@ namespace AutoChess
         {
             if (!IsAlive) return;
             currentHealth -= damage;
+            Damaged?.Invoke(this, damage);
+            FlashColor(Color.white, 0.08f);
             if (currentHealth <= 0f)
             {
                 currentHealth = 0f;
+                Died?.Invoke(this);
                 if (spriteRenderer != null) spriteRenderer.enabled = false;
             }
         }

@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6fdc32ed8ef1dc442a5f03cc1a14f4b1, type: 3}
   m_Name: Wizard
   m_EditorClassIdentifier: Assembly-CSharp::AutoChess.UnitData
-  displayName: Unnamed
-  unitClass: 0
+  displayName: Wizard
+  unitClass: 1
   unitType: 0
   cost: 1
-  maxHealth: 100
-  attackDamage: 10
-  attackRange: 1
-  attackSpeed: 1
-  moveSpeed: 2
-  displayColor: {r: 1, g: 1, b: 1, a: 1}
+  maxHealth: 70
+  attackDamage: 12
+  attackRange: 3
+  attackSpeed: 0.8
+  moveSpeed: 1.8
+  displayColor: {r: 0.45772517, g: 0.6933065, b: 0.6981132, a: 1}
