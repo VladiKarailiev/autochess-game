@@ -14,11 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AutoChess.UnitData
   displayName: Bear
   unitClass: 0
-  unitType: 0
+  unitType: 1
   cost: 3
   maxHealth: 150
   attackDamage: 14
   attackRange: 1
   attackSpeed: 0.6
   moveSpeed: 1.8
+  icon: {fileID: 0}
   displayColor: {r: 0.2924528, g: 0.18522042, b: 0.13656995, a: 1}

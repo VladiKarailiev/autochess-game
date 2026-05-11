@@ -131,10 +131,9 @@ namespace AutoChess
         {
             if (data == null) return;
 
-            Color displayBase = data.displayColor;
             Color final = team == Team.Enemy
-                ? Color.Lerp(displayBase, new Color(0.95f, 0.15f, 0.15f), 0.55f)
-                : displayBase;
+                ? Color.Lerp(data.displayColor, new Color(0.95f, 0.15f, 0.15f), 0.55f)
+                : data.displayColor;
             baseColor = final;
 
             // Don't override an in-progress hit flash visual.
@@ -233,7 +232,12 @@ namespace AutoChess
             currentHealth = MaxHealth;
             currentTarget = null;
             attackCooldownRemaining = 0f;
-            if (spriteRenderer != null) spriteRenderer.enabled = true;
+            hitFlashTimer = 0f;
+            if (spriteRenderer != null)
+            {
+                spriteRenderer.enabled = true;
+                spriteRenderer.color = baseColor;
+            }
             if (home != null) PlaceOnTile(home);
         }
     }

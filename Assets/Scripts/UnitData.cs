@@ -20,7 +20,7 @@ namespace AutoChess
         [Min(0.1f)] public float attackSpeed = 1f;
         [Min(0.1f)] public float moveSpeed = 2f;
 
-        [Header("Visual (placeholder)")]
+        [Header("Visual")]
         public Color displayColor = Color.white;
     }
 }
