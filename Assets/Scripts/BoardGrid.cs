@@ -11,71 +11,45 @@ namespace AutoChess
         [Min(1)] public int enemyRows  = 2;
         [Min(0)] public int benchRows  = 1;
         [Min(0.1f)] public float tileSize = 1f;
-        [Range(0f, 0.2f)] public float tileGap = 0.05f;
-
-        [Header("Tile Colors")]
-        public Color playerColorA = new Color(0.85f, 0.85f, 0.85f);
-        public Color playerColorB = new Color(0.65f, 0.65f, 0.65f);
-        public Color enemyColorA  = new Color(0.85f, 0.55f, 0.55f);
-        public Color enemyColorB  = new Color(0.65f, 0.40f, 0.40f);
-        public Color benchColor   = new Color(0.45f, 0.35f, 0.25f);
 
         Tile[,] tiles;
 
-        int TotalRows => benchRows + playerRows + enemyRows;
+        public int TotalRows => benchRows + playerRows + enemyRows;
 
         void Awake()
         {
-            BuildGrid();
+            IndexTiles();
         }
 
-        void BuildGrid()
+        void IndexTiles()
         {
             int total = TotalRows;
             tiles = new Tile[columns, total];
+
+            var allTiles = GetComponentsInChildren<Tile>(true);
+            foreach (var tile in allTiles)
+            {
+                int x = tile.gridPos.x;
+                int y = tile.gridPos.y;
+                if (x < 0 || x >= columns || y < 0 || y >= total)
+                {
+                    Debug.LogError($"Tile '{tile.name}' has out-of-range gridPos {tile.gridPos}.", tile);
+                    continue;
+                }
+                if (tiles[x, y] != null)
+                {
+                    Debug.LogError($"Two tiles share gridPos ({x},{y}): '{tiles[x, y].name}' and '{tile.name}'.", tile);
+                    continue;
+                }
+                tiles[x, y] = tile;
+            }
+
+            int missing = 0;
             for (int x = 0; x < columns; x++)
                 for (int y = 0; y < total; y++)
-                    tiles[x, y] = CreateTile(x, y);
-        }
-
-        TileZone ZoneOfRow(int y)
-        {
-            if (y < benchRows) return TileZone.Bench;
-            if (y < benchRows + playerRows) return TileZone.PlayerCombat;
-            return TileZone.EnemyCombat;
-        }
-
-        Tile CreateTile(int x, int y)
-        {
-            TileZone zone = ZoneOfRow(y);
-
-            var go = new GameObject($"Tile_{x}_{y}_{zone}");
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = GridToLocal(x, y);
-
-            float visualSize = Mathf.Max(0.01f, tileSize - tileGap);
-            go.transform.localScale = new Vector3(visualSize, visualSize, 1f);
-
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = Sprites.GetSquare();
-            sr.color = ColorFor(x, y, zone);
-
-            var tile = go.AddComponent<Tile>();
-            tile.gridPos = new Vector2Int(x, y);
-            tile.zone = zone;
-            return tile;
-        }
-
-        Color ColorFor(int x, int y, TileZone zone)
-        {
-            bool checker = (x + y) % 2 == 0;
-            switch (zone)
-            {
-                case TileZone.Bench:        return benchColor;
-                case TileZone.PlayerCombat: return checker ? playerColorA : playerColorB;
-                case TileZone.EnemyCombat:  return checker ? enemyColorA  : enemyColorB;
-                default: return Color.white;
-            }
+                    if (tiles[x, y] == null) missing++;
+            if (missing > 0)
+                Debug.LogError($"BoardGrid: {missing} tile slot(s) empty.");
         }
 
         public Vector3 GridToLocal(int x, int y)
@@ -84,11 +58,6 @@ namespace AutoChess
             float offsetX = -(columns - 1) * 0.5f * tileSize;
             float offsetY = -(total - 1) * 0.5f * tileSize;
             return new Vector3(offsetX + x * tileSize, offsetY + y * tileSize, 0f);
-        }
-
-        public Vector3 GridToWorld(Vector2Int gridPos)
-        {
-            return transform.TransformPoint(GridToLocal(gridPos.x, gridPos.y));
         }
 
         public Tile GetTile(int x, int y)
@@ -110,12 +79,14 @@ namespace AutoChess
             {
                 for (int y = 0; y < total; y++)
                 {
-                    Vector3 tilePos = GridToLocal(x, y);
-                    float dx = local.x - tilePos.x;
-                    float dy = local.y - tilePos.y;
+                    var tile = tiles[x, y];
+                    if (tile == null) continue;
+                    Vector3 tileLocal = transform.InverseTransformPoint(tile.transform.position);
+                    float dx = local.x - tileLocal.x;
+                    float dy = local.y - tileLocal.y;
                     if (Mathf.Abs(dx) > halfTile || Mathf.Abs(dy) > halfTile) continue;
                     float d = dx * dx + dy * dy;
-                    if (d < bestDist) { bestDist = d; best = GetTile(x, y); }
+                    if (d < bestDist) { bestDist = d; best = tile; }
                 }
             }
             return best;

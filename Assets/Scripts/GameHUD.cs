@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace AutoChess
 {
@@ -9,424 +11,531 @@ namespace AutoChess
         public Shop shop;
         public RoundManager rounds;
         public BoardGrid grid;
-        public CombatManager combat;
         public Inspector inspector;
         public Camera worldCamera;
 
-        static Texture2D whiteTex;
+        [Header("Pointer blocking")]
+        public RectTransform[] pointerBlocks;
+
+        [Header("Panels")]
+        public GameObject configPanel;
+        public GameObject inspectorPanel;
+        public GameObject gameOverPanel;
+
+        [Header("Status")]
+        public TMP_Text statusTitle;
+        public TMP_Text hpText;
+        public TMP_Text goldText;
+        public TMP_Text boardText;
+        public TMP_Text interestText;
+        public TMP_Text lastResultText;
+
+        [Header("Synergies")]
+        public TMP_Text[] synergyLines;
+
+        [Header("Shop")]
+        public Button[] shopButtons;
+        public TMP_Text[] shopLabels;
+        public Button refreshButton;
+        public TMP_Text refreshButtonLabel;
+        public Button levelButton;
+        public TMP_Text levelButtonLabel;
+        public Button battleButton;
+        public TMP_Text battleButtonLabel;
+
+        [Header("Inspector")]
+        public TMP_Text inspectorTitle;
+        public TMP_Text inspectorBody;
+        public Button sellButton;
+        public TMP_Text sellButtonLabel;
+        public Button closeInspectorButton;
+
+        [Header("Game over")]
+        public TMP_Text gameOverBody;
+        public Button restartButton;
+
+        [Header("Floating combat text")]
+        public TMP_Text[] floatingLabels;
+
+        static GameHUD activeHud;
+
+        readonly List<FloatingText> activeFloaters = new();
+        bool buttonsBound;
+        bool statusPanelPrepared;
+        bool inspectorPanelPrepared;
+
+        const float FloaterLifetime = 0.8f;
+        const float FloaterRiseSpeed = 1.2f;
+
+        static readonly Color TextColor = new(0.93f, 0.94f, 0.91f, 1f);
+        static readonly Color MutedText = new(0.63f, 0.68f, 0.72f, 1f);
+        static readonly Color GoldColor = new(1f, 0.78f, 0.25f, 1f);
+        static readonly Color GreenColor = new(0.38f, 0.86f, 0.47f, 1f);
+        static readonly Color RedColor = new(0.95f, 0.33f, 0.28f, 1f);
 
         class FloatingText
         {
+            public TMP_Text label;
             public Vector3 worldPos;
-            public string text;
             public Color color;
             public float age;
-            public float scale;
         }
-
-        readonly List<FloatingText> floaters = new();
-        const float FloaterLifetime = 0.8f;
-        const float FloaterRiseSpeed = 1.2f;
 
         void Awake()
         {
             if (worldCamera == null) worldCamera = Camera.main;
+            HideFloatingLabels();
+        }
+
+        void Start()
+        {
+            BindButtons();
+            RefreshUi();
         }
 
         void OnEnable()
         {
-            Unit.Damaged  += HandleDamaged;
-            Unit.Died     += HandleDied;
+            activeHud = this;
+            Unit.Damaged += HandleDamaged;
+            Unit.Died += HandleDied;
             Unit.Upgraded += HandleUpgraded;
         }
 
         void OnDisable()
         {
-            Unit.Damaged  -= HandleDamaged;
-            Unit.Died     -= HandleDied;
+            if (activeHud == this) activeHud = null;
+            Unit.Damaged -= HandleDamaged;
+            Unit.Died -= HandleDied;
             Unit.Upgraded -= HandleUpgraded;
         }
 
         void Update()
         {
-            float dt = Time.deltaTime;
-            for (int i = floaters.Count - 1; i >= 0; i--)
+            RefreshUi();
+            UpdateFloaters(Time.deltaTime);
+        }
+
+        public static bool IsPointerOverHud(Vector2 screenPosition)
+        {
+            return activeHud != null && activeHud.ContainsPointer(screenPosition);
+        }
+
+        bool ContainsPointer(Vector2 screenPosition)
+        {
+            if (pointerBlocks == null) return false;
+            for (int i = 0; i < pointerBlocks.Length; i++)
             {
-                floaters[i].age += dt;
-                if (floaters[i].age >= FloaterLifetime) floaters.RemoveAt(i);
+                var block = pointerBlocks[i];
+                if (block != null &&
+                    block.gameObject.activeInHierarchy &&
+                    RectTransformUtility.RectangleContainsScreenPoint(block, screenPosition, null))
+                    return true;
+            }
+            return false;
+        }
+
+        void BindButtons()
+        {
+            if (buttonsBound) return;
+            buttonsBound = true;
+
+            if (shopButtons != null)
+            {
+                for (int i = 0; i < shopButtons.Length; i++)
+                {
+                    int slot = i;
+                    if (shopButtons[i] != null)
+                    {
+                        shopButtons[i].onClick.RemoveAllListeners();
+                        shopButtons[i].onClick.AddListener(() =>
+                        {
+                            shop.TryBuy(slot);
+                            RefreshUi();
+                        });
+                    }
+                }
+            }
+
+            Bind(refreshButton, () => { shop.TryRefresh(); RefreshUi(); });
+            Bind(levelButton, () => { economy.TryBuyLevel(); RefreshUi(); });
+            Bind(battleButton, () => { rounds.StartBattle(); RefreshUi(); });
+            Bind(sellButton, SellInspectedUnit);
+            Bind(closeInspectorButton, () => inspector?.Clear());
+            Bind(restartButton, () => rounds.Restart());
+        }
+
+        static void Bind(Button button, UnityEngine.Events.UnityAction action)
+        {
+            if (button == null) return;
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(action);
+        }
+
+        void RefreshUi()
+        {
+            bool ready = ReferencesReady();
+            SetActive(configPanel, !ready);
+            if (!ready) return;
+
+            RefreshStatus();
+            RefreshSynergies();
+            RefreshShop();
+            RefreshActions();
+            RefreshInspector();
+            RefreshGameOver();
+        }
+
+        bool ReferencesReady()
+        {
+            return economy != null && shop != null && rounds != null && grid != null;
+        }
+
+        void RefreshStatus()
+        {
+            PrepareStatusPanel();
+
+            SetText(statusTitle, $"Round {rounds.round}  |  {rounds.Phase}");
+            SetText(hpText, $"HP: <color=#{ColorHex(economy.hp <= 5 ? RedColor : GreenColor)}>{economy.hp}/{economy.maxHP}</color>");
+            SetText(goldText, $"Gold: <color=#{ColorHex(GoldColor)}>{economy.gold}</color>    Level: {economy.level}/{economy.MaxLevel}");
+            SetText(boardText, $"Board: {grid.CountPlayerCombatUnits()}/{economy.level}");
+            SetText(interestText, $"Interest at round end: +{economy.Interest}g");
+
+            if (rounds.LastReward <= 0 && rounds.LastDamageTaken <= 0)
+            {
+                SetText(lastResultText, "");
+                RebuildStatusLayout();
+                return;
+            }
+
+            string outcome = rounds.LastWon ? "Last: WIN" : "Last: LOSS";
+            string damage = rounds.LastDamageTaken > 0 ? $"  -{rounds.LastDamageTaken} HP" : "";
+            SetText(lastResultText, $"{outcome}    +{rounds.LastReward}g{damage}");
+
+            RebuildStatusLayout();
+        }
+
+        void RebuildStatusLayout()
+        {
+            if (statusTitle == null) return;
+            if (statusTitle.transform.parent is RectTransform statusPanel)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(statusPanel);
+        }
+
+        void PrepareStatusPanel()
+        {
+            if (statusPanelPrepared)
+                return;
+
+            statusPanelPrepared = true;
+
+            PrepareStatusText(statusTitle, 28f);
+            PrepareStatusText(hpText, 22f);
+            PrepareStatusText(goldText, 22f);
+            PrepareStatusText(boardText, 22f);
+            PrepareStatusText(interestText, 22f);
+            PrepareStatusText(lastResultText, 20f);
+
+            if (statusTitle == null || statusTitle.transform.parent is not RectTransform statusPanel)
+                return;
+
+            statusPanel.sizeDelta = new Vector2(
+                Mathf.Max(statusPanel.sizeDelta.x, 360f),
+                Mathf.Max(statusPanel.sizeDelta.y, 190f));
+
+            if (statusPanel.TryGetComponent(out VerticalLayoutGroup layout))
+            {
+                layout.spacing = 5f;
+                layout.childControlHeight = true;
+                layout.childForceExpandHeight = false;
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(statusPanel);
+        }
+
+        static void PrepareStatusText(TMP_Text text, float preferredHeight)
+        {
+            if (text == null)
+                return;
+
+            text.gameObject.SetActive(true);
+            text.enabled = true;
+            text.alpha = 1f;
+            text.raycastTarget = false;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Overflow;
+
+            if (text.TryGetComponent(out LayoutElement layout))
+            {
+                layout.minHeight = preferredHeight;
+                layout.preferredHeight = preferredHeight;
+                layout.flexibleHeight = 0f;
             }
         }
 
-        void HandleDamaged(Unit u, float dmg)
+        void RefreshSynergies()
         {
-            if (u == null) return;
-            int rounded = Mathf.Max(1, Mathf.RoundToInt(dmg));
-            Color c = u.team == Team.Player
-                ? new Color(1f, 0.45f, 0.35f)
-                : new Color(1f, 0.95f, 0.45f);
-            float scale = Mathf.Clamp(0.9f + dmg * 0.01f, 0.9f, 1.6f);
-            SpawnFloater(u.transform.position, $"-{rounded}", c, scale);
+            if (synergyLines == null || synergyLines.Length < 4) return;
+
+            var s = SynergyEngine.ComputeFromBoard(grid);
+            SetSynergyLine(0, "Warrior", s.warriorCount, s.WarriorTier, "+20% HP", "+50% HP");
+            SetSynergyLine(1, "Mage", s.mageCount, s.MageTier, "+25% DMG", "+60% DMG");
+            SetSynergyLine(2, "Human", s.humanCount, s.HumanTier, "+15% ASPD", "+35% ASPD");
+            SetSynergyLine(3, "Beast", s.beastCount, s.BeastTier, "+20% DMG", "+45% DMG");
+        }
+
+        void SetSynergyLine(int index, string name, int count, int tier, string firstBonus, string secondBonus)
+        {
+            string color = ColorHex(tier > 0 ? GreenColor : MutedText);
+            string bonus = tier switch
+            {
+                2 => secondBonus,
+                1 => $"{firstBonus}   -> 3: {secondBonus}",
+                _ => $"2: {firstBonus}, 3: {secondBonus}",
+            };
+
+            SetText(synergyLines[index], $"<color=#{color}>{name}</color>  {count}/3    {bonus}");
+        }
+
+        void RefreshShop()
+        {
+            if (shopButtons == null || shopLabels == null) return;
+
+            for (int i = 0; i < shopButtons.Length; i++)
+            {
+                bool visible = i < shop.slotCount;
+                SetActive(shopButtons[i] != null ? shopButtons[i].gameObject : null, visible);
+                if (!visible) continue;
+
+                var unit = shop.currentSlots != null && i < shop.currentSlots.Length ? shop.currentSlots[i] : null;
+                bool buyable = CanBuySlot(i);
+
+                if (shopButtons[i] != null)
+                    shopButtons[i].interactable = buyable;
+
+                if (unit == null)
+                {
+                    SetText(shopLabels[i], "(empty)");
+                    continue;
+                }
+
+                if (shop.slotPurchased[i])
+                {
+                    SetText(shopLabels[i], "<color=#9AA0A6>(sold)</color>");
+                    continue;
+                }
+
+                SetText(shopLabels[i],
+                    $"<b>{unit.displayName}</b>  <color=#{ColorHex(GoldColor)}>{unit.cost}g</color>\n" +
+                    $"<color=#{ColorHex(MutedText)}>{unit.roleDescription}</color>\n" +
+                    $"{unit.unitClass} / {unit.unitType}\n" +
+                    $"HP {unit.maxHealth:0}   DMG {unit.attackDamage:0}\n" +
+                    $"R {unit.attackRange}   ASPD {unit.attackSpeed:0.##}");
+            }
+        }
+
+        void RefreshActions()
+        {
+            SetText(refreshButtonLabel, $"Refresh ({shop.refreshCost}g)");
+            SetButton(refreshButton, rounds.Phase == GamePhase.Prep && economy.CanAfford(shop.refreshCost));
+
+            SetText(levelButtonLabel, economy.IsAtMaxLevel ? "Max Level" : $"Level Up ({economy.LevelUpCost}g)");
+            SetButton(levelButton, rounds.Phase == GamePhase.Prep && !economy.IsAtMaxLevel && economy.CanAfford(economy.LevelUpCost));
+
+            string battleLabel = rounds.Phase switch
+            {
+                GamePhase.Prep => "Start Battle",
+                GamePhase.Combat => "Battling...",
+                GamePhase.Result => "Resolving...",
+                GamePhase.GameOver => "Game Over",
+                _ => "Start Battle",
+            };
+            SetText(battleButtonLabel, battleLabel);
+            SetButton(battleButton, rounds.Phase == GamePhase.Prep);
+        }
+
+        void RefreshInspector()
+        {
+            bool show = inspector != null && inspector.HasUnit && inspector.Current != null;
+            SetActive(inspectorPanel, show);
+            if (!show) return;
+
+            PrepareInspectorPanel();
+
+            var u = inspector.Current;
+            SetText(inspectorTitle, $"{u.displayName}  T{u.tier}");
+            SetText(inspectorBody,
+                $"Team: {u.team}\n" +
+                $"Class: {u.unitClass}\n" +
+                $"Type: {u.unitType}\n" +
+                $"Role: {u.roleDescription}\n\n" +
+                $"HP: {u.CurrentHealth:0} / {u.MaxHealth:0}\n" +
+                $"Damage: {u.AttackDamage:0.#}\n" +
+                $"Range: {u.attackRange}\n" +
+                $"Attack Speed: {u.attackSpeed:0.##}/s\n" +
+                $"Move Speed: {u.moveSpeed:0.#}");
+
+            SetText(sellButtonLabel, $"Sell ({u.SellValue}g)");
+            SetButton(sellButton, rounds.Phase == GamePhase.Prep && u.team == Team.Player);
+        }
+
+        void PrepareInspectorPanel()
+        {
+            if (inspectorPanelPrepared)
+                return;
+
+            inspectorPanelPrepared = true;
+
+            RectTransform panel = null;
+            if (inspectorPanel != null && inspectorPanel.transform is RectTransform inspectorRect)
+            {
+                panel = inspectorRect;
+                panel.sizeDelta = new Vector2(panel.sizeDelta.x, Mathf.Max(panel.sizeDelta.y, 370f));
+            }
+
+            if (inspectorBody == null)
+                return;
+
+            inspectorBody.enableWordWrapping = true;
+            inspectorBody.overflowMode = TextOverflowModes.Overflow;
+
+            if (inspectorBody.TryGetComponent(out LayoutElement layout))
+            {
+                layout.minHeight = 210f;
+                layout.preferredHeight = 210f;
+                layout.flexibleHeight = 1f;
+            }
+
+            if (panel != null)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(panel);
+        }
+
+        void RefreshGameOver()
+        {
+            bool show = rounds.Phase == GamePhase.GameOver;
+            SetActive(gameOverPanel, show);
+            if (show)
+                SetText(gameOverBody, $"Reached round {rounds.round}\nFinal level {economy.level}    Final gold {economy.gold}");
+        }
+
+        bool CanBuySlot(int index)
+        {
+            if (rounds.Phase != GamePhase.Prep) return false;
+            if (index < 0 || index >= shop.slotCount) return false;
+            if (shop.currentSlots == null || index >= shop.currentSlots.Length) return false;
+
+            var unit = shop.currentSlots[index];
+            return unit != null && !shop.slotPurchased[index] && economy.CanAfford(unit.cost);
+        }
+
+        void SellInspectedUnit()
+        {
+            if (inspector == null || inspector.Current == null) return;
+            shop.Sell(inspector.Current);
+            inspector.Clear();
+            RefreshUi();
+        }
+
+        void HandleDamaged(Unit unit, float damage)
+        {
+            if (unit == null) return;
+            int rounded = Mathf.Max(1, Mathf.RoundToInt(damage));
+            Color color = unit.team == Team.Player ? new Color(1f, 0.45f, 0.35f) : new Color(1f, 0.95f, 0.45f);
+            SpawnFloater(unit.transform.position, $"-{rounded}", color);
             if (rounded >= 30) CameraShake.Trigger(0.06f);
         }
 
-        void HandleDied(Unit u)
+        void HandleDied(Unit unit)
         {
             CameraShake.Trigger(0.15f);
         }
 
-        void HandleUpgraded(Unit u)
+        void HandleUpgraded(Unit unit)
         {
-            if (u == null) return;
-            SpawnFloater(u.transform.position, $"T{u.tier}!",
-                         new Color(1f, 0.85f, 0.2f), 1.5f);
+            if (unit == null) return;
+            SpawnFloater(unit.transform.position, $"T{unit.tier}!", GoldColor);
             CameraShake.Trigger(0.08f);
         }
 
-        void SpawnFloater(Vector3 pos, string text, Color color, float scale = 1f)
+        void SpawnFloater(Vector3 worldPos, string text, Color color)
         {
-            floaters.Add(new FloatingText
-            {
-                worldPos = pos,
-                text = text,
-                color = color,
-                age = 0f,
-                scale = scale,
-            });
-        }
+            if (floatingLabels == null) return;
 
-        void OnGUI()
-        {
-            if (economy == null || shop == null || rounds == null || grid == null)
+            for (int i = 0; i < floatingLabels.Length; i++)
             {
-                DrawConfigError();
+                var label = floatingLabels[i];
+                if (label == null || label.gameObject.activeSelf) continue;
+
+                label.text = text;
+                label.color = color;
+                label.gameObject.SetActive(true);
+                activeFloaters.Add(new FloatingText { label = label, worldPos = worldPos, color = color });
                 return;
             }
-
-            DrawStatusPanel();
-            DrawSynergyPanel();
-            DrawShopBar();
-            DrawTierDots();
-            DrawHealthBars();
-            DrawFloaters();
-            DrawInspectorPanel();
-            DrawGameOverPanel();
         }
 
-        void DrawConfigError()
-        {
-            GUILayout.BeginArea(new Rect(10, 10, 480, 200), GUI.skin.box);
-            GUILayout.Label("GameHUD: missing references.");
-            if (economy == null) GUILayout.Label("  - PlayerEconomy");
-            if (shop == null)    GUILayout.Label("  - Shop");
-            if (rounds == null)  GUILayout.Label("  - RoundManager");
-            if (grid == null)    GUILayout.Label("  - BoardGrid");
-            GUILayout.Label("Drag the matching GameObjects into each empty field.");
-            GUILayout.EndArea();
-        }
-
-        void DrawStatusPanel()
-        {
-            GUILayout.BeginArea(new Rect(10, 10, 360, 200), GUI.skin.box);
-            GUILayout.Label($"Round: {rounds.round}     Phase: {rounds.Phase}");
-
-            var prevColor = GUI.color;
-            GUI.color = economy.hp <= 5 ? new Color(1f, 0.4f, 0.4f) : Color.white;
-            GUILayout.Label($"HP: {economy.hp}/{economy.maxHP}");
-            GUI.color = prevColor;
-
-            GUILayout.Label($"Gold: {economy.gold}     Level: {economy.level}/{economy.MaxLevel}");
-            GUILayout.Label($"Board: {grid.CountPlayerCombatUnits()}/{economy.level}");
-            GUILayout.Label($"Interest at round end: +{economy.Interest}");
-
-            if (rounds.LastReward > 0 || rounds.LastDamageTaken > 0)
-            {
-                string outcome = rounds.LastWon ? "WIN" : "LOSS";
-                string line = $"Last: {outcome}, +{rounds.LastReward}g  " +
-                              $"(base {rounds.LastBase} + win {rounds.LastWin} + " +
-                              $"kills {rounds.LastKills} + interest {rounds.LastInterest})";
-                if (rounds.LastDamageTaken > 0)
-                    line += $"  -{rounds.LastDamageTaken} HP";
-                GUILayout.Label(line);
-            }
-
-            GUILayout.Label("Right-click a unit to inspect / sell.");
-            GUILayout.EndArea();
-        }
-
-        void DrawSynergyPanel()
-        {
-            var s = SynergyEngine.ComputeFromBoard(grid);
-            GUILayout.BeginArea(new Rect(380, 10, 380, 130), GUI.skin.box);
-            GUILayout.Label("Synergies (board only)");
-            DrawTraitLine("Warrior", s.warriorCount, s.WarriorTier, "+20% HP",   "+50% HP");
-            DrawTraitLine("Mage",    s.mageCount,    s.MageTier,    "+25% DMG",  "+60% DMG");
-            DrawTraitLine("Human",   s.humanCount,   s.HumanTier,   "+15% ASPD", "+35% ASPD");
-            DrawTraitLine("Beast",   s.beastCount,   s.BeastTier,   "+20% DMG",  "+45% DMG");
-            GUILayout.EndArea();
-        }
-
-        void DrawTraitLine(string name, int count, int tier, string t1, string t2)
-        {
-            string mark = tier > 0 ? "*" : "-";
-            string body = tier switch
-            {
-                2 => t2,
-                1 => $"{t1}   ->   3: {t2}",
-                _ => $"2: {t1},  3: {t2}",
-            };
-            string text = $"{mark} {name} {count}/3   {body}";
-
-            var prev = GUI.color;
-            GUI.color = tier > 0 ? new Color(0.7f, 1f, 0.7f) : Color.white;
-            GUILayout.Label(text);
-            GUI.color = prev;
-        }
-
-        void DrawShopBar()
-        {
-            const float barH = 130f;
-            const float pad  = 10f;
-            float y = Screen.height - barH - pad;
-
-            GUILayout.BeginArea(new Rect(pad, y, Screen.width - 2 * pad, barH), GUI.skin.box);
-            GUILayout.BeginHorizontal();
-
-            bool prep = rounds.Phase == GamePhase.Prep;
-
-            for (int i = 0; i < shop.slotCount; i++)
-                DrawShopSlot(i, prep);
-
-            GUILayout.Space(15);
-            DrawActionButtons(prep);
-
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
-        }
-
-        void DrawShopSlot(int i, bool prep)
-        {
-            var data = shop.currentSlots[i];
-            string label;
-            if (data == null) label = "(empty)";
-            else if (shop.slotPurchased[i]) label = "(sold)";
-            else label =
-                $"{data.displayName}\n" +
-                $"{data.unitClass} / {data.unitType}\n" +
-                $"HP {data.maxHealth:0}  DMG {data.attackDamage:0}\n" +
-                $"R {data.attackRange}  ASPD {data.attackSpeed:0.#}\n" +
-                $"{data.cost}g";
-
-            bool buyable = prep && data != null && !shop.slotPurchased[i] && economy.CanAfford(data.cost);
-            GUI.enabled = buyable;
-            if (GUILayout.Button(label, GUILayout.Width(140), GUILayout.Height(110)))
-                shop.TryBuy(i);
-            GUI.enabled = true;
-        }
-
-        void DrawActionButtons(bool prep)
-        {
-            GUILayout.BeginVertical(GUILayout.Width(170));
-
-            GUI.enabled = prep && economy.CanAfford(shop.refreshCost);
-            if (GUILayout.Button($"Refresh ({shop.refreshCost}g)", GUILayout.Height(26)))
-                shop.TryRefresh();
-
-            GUI.enabled = prep && !economy.IsAtMaxLevel && economy.CanAfford(economy.LevelUpCost);
-            string levelLabel = economy.IsAtMaxLevel
-                ? "Max Level"
-                : $"Level Up ({economy.LevelUpCost}g)";
-            if (GUILayout.Button(levelLabel, GUILayout.Height(26)))
-                economy.TryBuyLevel();
-
-            GUI.enabled = prep;
-            string mainLabel = rounds.Phase switch
-            {
-                GamePhase.Prep     => "Start Battle",
-                GamePhase.Combat   => "Battling...",
-                GamePhase.Result   => "Resolving...",
-                GamePhase.GameOver => "Game Over",
-                _ => "Start Battle",
-            };
-            if (GUILayout.Button(mainLabel, GUILayout.Height(26)))
-                rounds.StartBattle();
-            GUI.enabled = true;
-
-            GUILayout.EndVertical();
-        }
-
-        void DrawInspectorPanel()
-        {
-            if (inspector == null || !inspector.HasUnit) return;
-            var u = inspector.Current;
-            if (u == null) { inspector.Clear(); return; }
-            if (u.data == null) { inspector.Clear(); return; }
-
-            const float w = 290f;
-            const float h = 360f;
-            float x = Screen.width - w - 10f;
-            float y = 10f;
-
-            GUILayout.BeginArea(new Rect(x, y, w, h), GUI.skin.box);
-
-            GUILayout.Label($"{u.data.displayName}   (T{u.tier})");
-            GUILayout.Label($"Team: {u.team}");
-            GUILayout.Label($"Class: {u.data.unitClass}");
-            GUILayout.Label($"Type:  {u.data.unitType}");
-            GUILayout.Space(4);
-            GUILayout.Label($"HP:        {u.CurrentHealth:0} / {u.MaxHealth:0}");
-            GUILayout.Label($"Damage:    {u.AttackDamage:0.#}");
-            GUILayout.Label($"Range:     {u.data.attackRange} tile(s)");
-            GUILayout.Label($"Atk speed: {u.data.attackSpeed:0.##}/s");
-            GUILayout.Label($"Move:      {u.data.moveSpeed:0.#} tiles/s");
-            GUILayout.Space(6);
-
-            bool prep = rounds.Phase == GamePhase.Prep;
-
-            if (u.team == Team.Player && shop != null)
-            {
-                GUI.enabled = prep;
-                if (GUILayout.Button($"Sell  ({u.SellValue}g)", GUILayout.Height(32)))
-                {
-                    shop.Sell(u);
-                    inspector.Clear();
-                    GUILayout.EndArea();
-                    return;
-                }
-                GUI.enabled = true;
-                if (!prep) GUILayout.Label("(can only sell during Prep)");
-            }
-
-            if (GUILayout.Button("Close", GUILayout.Height(24)))
-                inspector.Clear();
-            GUILayout.EndArea();
-        }
-
-        void DrawGameOverPanel()
-        {
-            if (rounds.Phase != GamePhase.GameOver) return;
-
-            const float w = 420f;
-            const float h = 220f;
-            float x = (Screen.width - w) * 0.5f;
-            float y = (Screen.height - h) * 0.5f;
-
-            GUILayout.BeginArea(new Rect(x, y, w, h), GUI.skin.box);
-            GUILayout.Label("GAME OVER");
-            GUILayout.Label($"You reached round {rounds.round}.");
-            GUILayout.Label($"Final level: {economy.level}     Final gold: {economy.gold}");
-            GUILayout.Space(20);
-            if (GUILayout.Button("Restart", GUILayout.Height(40)))
-                rounds.Restart();
-            GUILayout.EndArea();
-        }
-
-        void DrawTierDots()
+        void UpdateFloaters(float dt)
         {
             if (worldCamera == null) return;
-            foreach (var t in grid.AllTiles())
+
+            for (int i = activeFloaters.Count - 1; i >= 0; i--)
             {
-                if (t.occupant == null) continue;
-                var u = t.occupant;
-                if (u.tier <= 1) continue;
-                if (!u.IsAlive && combat != null && combat.InCombat) continue;
-                DrawTierDotsFor(u);
+                var floater = activeFloaters[i];
+                floater.age += dt;
+
+                if (floater.age >= FloaterLifetime)
+                {
+                    floater.label.gameObject.SetActive(false);
+                    activeFloaters.RemoveAt(i);
+                    continue;
+                }
+
+                float t = floater.age / FloaterLifetime;
+                Vector3 world = floater.worldPos + new Vector3(0f, floater.age * FloaterRiseSpeed, 0f);
+                Vector3 screen = worldCamera.WorldToScreenPoint(world);
+
+                floater.label.color = new Color(floater.color.r, floater.color.g, floater.color.b, 1f - t);
+                floater.label.rectTransform.position = screen;
             }
         }
 
-        void DrawTierDotsFor(Unit u)
+        void HideFloatingLabels()
         {
-            Vector3 sp = worldCamera.WorldToScreenPoint(u.transform.position);
-            if (sp.z < 0f) return;
-
-            int count = u.tier;
-            float size = 7f;
-            float spacing = 11f;
-            float totalW = (count - 1) * spacing + size;
-            float x = sp.x - totalW * 0.5f;
-            float y = Screen.height - sp.y - 30f;
-
-            Color border = Color.black;
-            Color fill = new Color(1f, 0.85f, 0.2f);
-
-            for (int i = 0; i < count; i++)
-            {
-                float dx = x + i * spacing;
-                DrawSolid(new Rect(dx - 1f, y - 1f, size + 2f, size + 2f), border);
-                DrawSolid(new Rect(dx, y, size, size), fill);
-            }
+            if (floatingLabels == null) return;
+            for (int i = 0; i < floatingLabels.Length; i++)
+                if (floatingLabels[i] != null)
+                    floatingLabels[i].gameObject.SetActive(false);
         }
 
-        void DrawHealthBars()
+        static void SetText(TMP_Text text, string value)
         {
-            if (combat == null || !combat.InCombat || worldCamera == null) return;
-            DrawHealthBarsFor(combat.PlayerUnits);
-            DrawHealthBarsFor(combat.EnemyUnits);
+            if (text == null) return;
+
+            text.gameObject.SetActive(true);
+            text.enabled = true;
+            text.alpha = 1f;
+
+            if (text.text != value)
+                text.text = value;
+
+            text.ForceMeshUpdate();
+            LayoutRebuilder.MarkLayoutForRebuild(text.rectTransform);
         }
 
-        void DrawHealthBarsFor(IReadOnlyList<Unit> units)
+        static void SetActive(GameObject obj, bool active)
         {
-            for (int i = 0; i < units.Count; i++)
-            {
-                var u = units[i];
-                if (u == null || !u.IsAlive) continue;
-                DrawHealthBar(u);
-            }
+            if (obj != null && obj.activeSelf != active)
+                obj.SetActive(active);
         }
 
-        void DrawHealthBar(Unit u)
+        static void SetButton(Button button, bool interactable)
         {
-            Vector3 sp = worldCamera.WorldToScreenPoint(u.transform.position);
-            if (sp.z < 0f) return;
-            float barW = 50f;
-            float barH = 6f;
-            float x = sp.x - barW * 0.5f;
-            float y = Screen.height - sp.y - 38f;
-
-            float pct = Mathf.Clamp01(u.CurrentHealth / Mathf.Max(1f, u.MaxHealth));
-
-            DrawSolid(new Rect(x - 1f, y - 1f, barW + 2f, barH + 2f), Color.black);
-            DrawSolid(new Rect(x, y, barW, barH), new Color(0.25f, 0.25f, 0.25f));
-            Color fill = u.team == Team.Player ? new Color(0.3f, 0.85f, 0.3f) : new Color(0.9f, 0.3f, 0.3f);
-            DrawSolid(new Rect(x, y, barW * pct, barH), fill);
+            if (button != null) button.interactable = interactable;
         }
 
-        void DrawFloaters()
+        static string ColorHex(Color color)
         {
-            if (worldCamera == null || floaters.Count == 0) return;
-
-            GUIStyle style = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-            };
-
-            for (int i = 0; i < floaters.Count; i++)
-            {
-                var ft = floaters[i];
-                float t = ft.age / FloaterLifetime;
-                float alpha = 1f - t;
-                Vector3 wp = ft.worldPos + new Vector3(0f, ft.age * FloaterRiseSpeed, 0f);
-                Vector3 sp = worldCamera.WorldToScreenPoint(wp);
-                if (sp.z < 0f) continue;
-
-                int fontSize = Mathf.RoundToInt(14f * ft.scale);
-                style.fontSize = fontSize;
-
-                var prev = GUI.color;
-                GUI.color = new Color(ft.color.r, ft.color.g, ft.color.b, alpha);
-                Rect r = new Rect(sp.x - 40f, Screen.height - sp.y - 60f, 80f, 24f);
-                GUI.Label(r, ft.text, style);
-                GUI.color = prev;
-            }
-        }
-
-        static void DrawSolid(Rect rect, Color color)
-        {
-            if (whiteTex == null) whiteTex = Texture2D.whiteTexture;
-            var prev = GUI.color;
-            GUI.color = color;
-            GUI.DrawTexture(rect, whiteTex);
-            GUI.color = prev;
+            Color32 c = color;
+            return $"{c.r:X2}{c.g:X2}{c.b:X2}";
         }
     }
 }

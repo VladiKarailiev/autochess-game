@@ -22,9 +22,7 @@ namespace AutoChess
         void OnEnable()
         {
             if (inspector == null)
-                Debug.LogWarning("DragController: Inspector reference is not assigned. " +
-                                 "Right-click will do nothing. Drag the Inspector component " +
-                                 "into DragController.Inspector in the Unity Inspector.");
+                Debug.LogWarning("DragController.inspector is not assigned; right-click will do nothing.");
         }
 
         void Update()
@@ -35,13 +33,13 @@ namespace AutoChess
             var mouse = Mouse.current;
             if (mouse == null) return;
 
-            Vector3 worldPos = ScreenToWorld(mouse.position.ReadValue());
+            Vector2 screenPos = mouse.position.ReadValue();
+            bool pointerOverHud = GameHUD.IsPointerOverHud(screenPos);
+            Vector3 worldPos = ScreenToWorld(screenPos);
 
-            // Right-click is always inspect (works in any phase).
-            if (mouse.rightButton.wasPressedThisFrame && dragging == null)
+            if (mouse.rightButton.wasPressedThisFrame && dragging == null && !pointerOverHud)
                 TryInspect(worldPos);
 
-            // Drag is only allowed in Prep.
             if (!inPrep)
             {
                 if (dragging != null)
@@ -53,7 +51,7 @@ namespace AutoChess
                 return;
             }
 
-            if (mouse.leftButton.wasPressedThisFrame)
+            if (mouse.leftButton.wasPressedThisFrame && !pointerOverHud)
                 TryStartDrag(worldPos);
 
             if (dragging != null)

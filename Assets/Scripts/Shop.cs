@@ -9,16 +9,17 @@ namespace AutoChess
         public UpgradeManager upgrades;
 
         [Header("Pool & rules")]
-        public UnitData[] pool;
+        [Tooltip("Drag the unit prefabs here.")]
+        public Unit[] pool;
         [Min(1)] public int slotCount = 5;
         [Min(0)] public int refreshCost = 2;
 
-        public UnitData[] currentSlots;
+        public Unit[] currentSlots;
         public bool[] slotPurchased;
 
         void Awake()
         {
-            currentSlots  = new UnitData[slotCount];
+            currentSlots  = new Unit[slotCount];
             slotPurchased = new bool[slotCount];
         }
 
@@ -42,32 +43,31 @@ namespace AutoChess
         public bool TryBuy(int slotIndex)
         {
             if (slotIndex < 0 || slotIndex >= slotCount) return false;
-            var data = currentSlots[slotIndex];
-            if (data == null || slotPurchased[slotIndex]) return false;
-            if (!economy.CanAfford(data.cost)) return false;
+            var prefab = currentSlots[slotIndex];
+            if (prefab == null || slotPurchased[slotIndex]) return false;
+            if (!economy.CanAfford(prefab.cost)) return false;
 
             Tile bench = grid.FindFirstEmptyBenchTile();
-            // If bench is full but the new unit would immediately merge with two
-            // existing tier-1 copies, allow the purchase: the merge will free a tile.
-            if (bench == null && !WouldImmediatelyMerge(data)) return false;
+            // Allow purchase with a full bench if it would trigger an immediate merge.
+            if (bench == null && (upgrades == null || !WouldImmediatelyMerge(prefab.displayName))) return false;
 
-            if (!economy.TrySpend(data.cost)) return false;
-            SpawnUnit(data, bench);
+            if (!economy.TrySpend(prefab.cost)) return false;
+            Unit unit = SpawnUnit(prefab, bench);
             slotPurchased[slotIndex] = true;
-            upgrades?.CheckUpgrades();
+            upgrades?.CheckUpgrades(unit);
             return true;
         }
 
         public void Sell(Unit unit)
         {
-            if (unit == null || unit.data == null) return;
+            if (unit == null) return;
             economy.Gain(unit.SellValue);
             if (unit.CurrentTile != null)
                 unit.CurrentTile.occupant = null;
             Destroy(unit.gameObject);
         }
 
-        bool WouldImmediatelyMerge(UnitData data)
+        bool WouldImmediatelyMerge(string kind)
         {
             int count = 0;
             foreach (var t in grid.AllTiles())
@@ -75,22 +75,22 @@ namespace AutoChess
                 if (t.occupant == null) continue;
                 var u = t.occupant;
                 if (u.team != Team.Player) continue;
-                if (u.data == data && u.tier == 1) count++;
+                if (u.displayName == kind && u.tier == 1) count++;
             }
             return count >= 2;
         }
 
-        void SpawnUnit(UnitData data, Tile tile)
+        Unit SpawnUnit(Unit prefab, Tile tile)
         {
-            var go = new GameObject();
-            go.transform.SetParent(grid.transform, false);
-            var unit = go.AddComponent<Unit>();
-            unit.Initialize(data, Team.Player);
+            Unit unit = Instantiate(prefab, grid.transform);
+            unit.Initialize(Team.Player);
 
             if (tile != null)
                 unit.PlaceOnTile(tile);
             else
-                go.transform.position = new Vector3(-100f, -100f, 0f); // off-screen until merge
+                unit.transform.position = new Vector3(-100f, -100f, 0f);
+
+            return unit;
         }
     }
 }

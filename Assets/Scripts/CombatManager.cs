@@ -9,7 +9,8 @@ namespace AutoChess
         public RoundManager rounds;
 
         [Header("Enemy generation")]
-        public UnitData[] enemyPool;
+        [Tooltip("Drag the unit prefabs the enemy can spawn.")]
+        public Unit[] enemyPool;
         [Min(0f)] public float maxBattleSeconds = 30f;
 
         readonly List<Unit> playerUnits = new();
@@ -20,16 +21,12 @@ namespace AutoChess
         bool inCombat;
         float battleClock;
 
-        public bool InCombat => inCombat;
-        public IReadOnlyList<Unit> PlayerUnits => playerUnits;
-        public IReadOnlyList<Unit> EnemyUnits  => enemyUnits;
-
         public void StartBattle(int round)
         {
             CollectPlayerUnits();
             SpawnEnemies(round);
 
-            // Synergies must be applied before OnCombatStart so currentHealth uses buffed MaxHealth.
+            // Apply synergies before OnCombatStart so currentHealth picks up the buffed MaxHealth.
             var synergies = SynergyEngine.Compute(playerUnits);
             SynergyEngine.Apply(playerUnits, synergies);
 
@@ -69,15 +66,15 @@ namespace AutoChess
 
             for (int i = 0; i < count && emptyEnemyTiles.Count > 0; i++)
             {
-                var data = enemyPool[Random.Range(0, enemyPool.Length)];
+                var prefab = enemyPool[Random.Range(0, enemyPool.Length)];
+                if (prefab == null) continue;
+
                 int idx = Random.Range(0, emptyEnemyTiles.Count);
                 var tile = emptyEnemyTiles[idx];
                 emptyEnemyTiles.RemoveAt(idx);
 
-                var go = new GameObject();
-                go.transform.SetParent(grid.transform, false);
-                var unit = go.AddComponent<Unit>();
-                unit.Initialize(data, Team.Enemy);
+                Unit unit = Instantiate(prefab, grid.transform);
+                unit.Initialize(Team.Enemy);
 
                 int targetTier = RollEnemyTier(round);
                 while (unit.tier < targetTier) unit.Upgrade();
