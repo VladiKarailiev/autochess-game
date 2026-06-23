@@ -26,7 +26,6 @@ namespace AutoChess
             CollectPlayerUnits();
             SpawnEnemies(round);
 
-            // Apply synergies before OnCombatStart so currentHealth picks up the buffed MaxHealth.
             var synergies = SynergyEngine.Compute(playerUnits);
             SynergyEngine.Apply(playerUnits, synergies);
 

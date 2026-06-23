@@ -9,6 +9,7 @@ namespace AutoChess
         public PlayerEconomy economy;
         public Shop shop;
         public CombatManager combat;
+        public ItemManager items;
 
         [Header("Round state")]
         [Min(1)] public int round = 1;
@@ -71,6 +72,8 @@ namespace AutoChess
             LastDamageTaken = dmg;
             LastWon         = won;
 
+            if (won && items != null) items.RollReward();
+
             if (economy.IsDead)
             {
                 Phase = GamePhase.GameOver;
@@ -92,6 +95,13 @@ namespace AutoChess
         public void Restart()
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        public string mainMenuScene = "MainMenu";
+
+        public void LoadMainMenu()
+        {
+            SceneManager.LoadScene(mainMenuScene);
         }
     }
 }

@@ -613,4 +613,9 @@ MonoBehaviour:
   team: 0
   tier: 1
   visualScale: 0.6
+  ability: 4
+  abilityCooldown: 5
+  abilityPower: 35
+  abilityDuration: 3
+  abilityRadius: 2
   overlay: {fileID: 3665399683985846075}

@@ -6,11 +6,13 @@ namespace AutoChess
     {
         public int warriorCount;
         public int mageCount;
+        public int rangerCount;
         public int humanCount;
         public int beastCount;
 
         public int WarriorTier => TierFromCount(warriorCount);
         public int MageTier    => TierFromCount(mageCount);
+        public int RangerTier  => TierFromCount(rangerCount);
         public int HumanTier   => TierFromCount(humanCount);
         public int BeastTier   => TierFromCount(beastCount);
 
@@ -28,23 +30,23 @@ namespace AutoChess
         public static float MageDamage(int tier) => tier switch { 1 => 1.25f, 2 => 1.60f, _ => 1f };
         public static float HumanAspd(int tier)  => tier switch { 1 => 1.15f, 2 => 1.35f, _ => 1f };
         public static float BeastDamage(int tier)=> tier switch { 1 => 1.20f, 2 => 1.45f, _ => 1f };
+        public static float RangerRange(int tier)=> tier switch { 1 => 1f,    2 => 2f,    _ => 0f };
+        public static float RangerAspd(int tier) => tier switch { 1 => 1f,    2 => 1.15f, _ => 1f };
 
         public static string DescribeWarrior(int tier) => tier switch { 1 => "+20% HP",   2 => "+50% HP",  _ => "—" };
         public static string DescribeMage(int tier)    => tier switch { 1 => "+25% DMG",  2 => "+60% DMG", _ => "—" };
         public static string DescribeHuman(int tier)   => tier switch { 1 => "+15% ASPD", 2 => "+35% ASPD",_ => "—" };
         public static string DescribeBeast(int tier)   => tier switch { 1 => "+20% DMG",  2 => "+45% DMG", _ => "—" };
+        public static string DescribeRanger(int tier)  => tier switch { 1 => "+1 Range",  2 => "+2 Range, +15% ASPD", _ => "—" };
 
-        public static SynergyResult ComputeFromBoard(BoardGrid grid)
+        public static SynergyResult Compute(IEnumerable<Unit> units)
         {
             var classSet = new Dictionary<UnitClass, HashSet<string>>();
             var typeSet  = new Dictionary<UnitType,  HashSet<string>>();
 
-            foreach (var t in grid.AllTiles())
+            foreach (var u in units)
             {
-                if (t.zone != TileZone.PlayerCombat) continue;
-                var u = t.occupant;
                 if (u == null || u.team != Team.Player) continue;
-
                 AddUnique(classSet, u.unitClass, u.displayName);
                 AddUnique(typeSet,  u.unitType,  u.displayName);
             }
@@ -53,31 +55,25 @@ namespace AutoChess
             {
                 warriorCount = CountOf(classSet, UnitClass.Warrior),
                 mageCount    = CountOf(classSet, UnitClass.Mage),
+                rangerCount  = CountOf(classSet, UnitClass.Ranger),
                 humanCount   = CountOf(typeSet,  UnitType.Human),
                 beastCount   = CountOf(typeSet,  UnitType.Beast),
             };
         }
 
-        public static SynergyResult Compute(IReadOnlyList<Unit> units)
+        public static SynergyResult ComputeFromBoard(BoardGrid grid)
         {
-            var classSet = new Dictionary<UnitClass, HashSet<string>>();
-            var typeSet  = new Dictionary<UnitType,  HashSet<string>>();
+            return Compute(PlayerCombatUnits(grid));
+        }
 
-            for (int i = 0; i < units.Count; i++)
+        static IEnumerable<Unit> PlayerCombatUnits(BoardGrid grid)
+        {
+            foreach (var t in grid.AllTiles())
             {
-                var u = units[i];
-                if (u == null || u.team != Team.Player) continue;
-                AddUnique(classSet, u.unitClass, u.displayName);
-                AddUnique(typeSet,  u.unitType,  u.displayName);
+                if (t.zone != TileZone.PlayerCombat) continue;
+                if (t.occupant != null && t.occupant.team == Team.Player)
+                    yield return t.occupant;
             }
-
-            return new SynergyResult
-            {
-                warriorCount = CountOf(classSet, UnitClass.Warrior),
-                mageCount    = CountOf(classSet, UnitClass.Mage),
-                humanCount   = CountOf(typeSet,  UnitType.Human),
-                beastCount   = CountOf(typeSet,  UnitType.Beast),
-            };
         }
 
         public static void Apply(IReadOnlyList<Unit> units, SynergyResult r)
@@ -90,13 +86,19 @@ namespace AutoChess
                 float hp   = 1f;
                 float dmg  = 1f;
                 float aspd = 1f;
+                float rangeAdd = 0f;
 
                 if (u.unitClass == UnitClass.Warrior) hp   *= WarriorHp(r.WarriorTier);
                 if (u.unitClass == UnitClass.Mage)    dmg  *= MageDamage(r.MageTier);
+                if (u.unitClass == UnitClass.Ranger)
+                {
+                    rangeAdd += RangerRange(r.RangerTier);
+                    aspd     *= RangerAspd(r.RangerTier);
+                }
                 if (u.unitType  == UnitType.Human)    aspd *= HumanAspd(r.HumanTier);
                 if (u.unitType  == UnitType.Beast)    dmg  *= BeastDamage(r.BeastTier);
 
-                u.ApplyCombatBuffs(hp, dmg, aspd);
+                u.ApplyCombatBuffs(hp, dmg, aspd, rangeAdd);
             }
         }
 

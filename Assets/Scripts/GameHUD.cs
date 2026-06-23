@@ -12,6 +12,7 @@ namespace AutoChess
         public RoundManager rounds;
         public BoardGrid grid;
         public Inspector inspector;
+        public ItemManager items;
         public Camera worldCamera;
 
         [Header("Pointer blocking")]
@@ -48,11 +49,14 @@ namespace AutoChess
         public TMP_Text inspectorBody;
         public Button sellButton;
         public TMP_Text sellButtonLabel;
+        public Button equipButton;
+        public TMP_Text equipButtonLabel;
         public Button closeInspectorButton;
 
         [Header("Game over")]
         public TMP_Text gameOverBody;
         public Button restartButton;
+        public Button mainMenuButton;
 
         [Header("Floating combat text")]
         public TMP_Text[] floatingLabels;
@@ -61,8 +65,6 @@ namespace AutoChess
 
         readonly List<FloatingText> activeFloaters = new();
         bool buttonsBound;
-        bool statusPanelPrepared;
-        bool inspectorPanelPrepared;
 
         const float FloaterLifetime = 0.8f;
         const float FloaterRiseSpeed = 1.2f;
@@ -99,6 +101,7 @@ namespace AutoChess
             Unit.Damaged += HandleDamaged;
             Unit.Died += HandleDied;
             Unit.Upgraded += HandleUpgraded;
+            Unit.AbilityCast += HandleAbilityCast;
         }
 
         void OnDisable()
@@ -107,6 +110,7 @@ namespace AutoChess
             Unit.Damaged -= HandleDamaged;
             Unit.Died -= HandleDied;
             Unit.Upgraded -= HandleUpgraded;
+            Unit.AbilityCast -= HandleAbilityCast;
         }
 
         void Update()
@@ -160,8 +164,10 @@ namespace AutoChess
             Bind(levelButton, () => { economy.TryBuyLevel(); RefreshUi(); });
             Bind(battleButton, () => { rounds.StartBattle(); RefreshUi(); });
             Bind(sellButton, SellInspectedUnit);
+            Bind(equipButton, EquipItemOnInspected);
             Bind(closeInspectorButton, () => inspector?.Clear());
             Bind(restartButton, () => rounds.Restart());
+            Bind(mainMenuButton, () => rounds.LoadMainMenu());
         }
 
         static void Bind(Button button, UnityEngine.Events.UnityAction action)
@@ -192,8 +198,6 @@ namespace AutoChess
 
         void RefreshStatus()
         {
-            PrepareStatusPanel();
-
             SetText(statusTitle, $"Round {rounds.round}  |  {rounds.Phase}");
             SetText(hpText, $"HP: <color=#{ColorHex(economy.hp <= 5 ? RedColor : GreenColor)}>{economy.hp}/{economy.maxHP}</color>");
             SetText(goldText, $"Gold: <color=#{ColorHex(GoldColor)}>{economy.gold}</color>    Level: {economy.level}/{economy.MaxLevel}");
@@ -203,88 +207,40 @@ namespace AutoChess
             if (rounds.LastReward <= 0 && rounds.LastDamageTaken <= 0)
             {
                 SetText(lastResultText, "");
-                RebuildStatusLayout();
                 return;
             }
 
             string outcome = rounds.LastWon ? "Last: WIN" : "Last: LOSS";
             string damage = rounds.LastDamageTaken > 0 ? $"  -{rounds.LastDamageTaken} HP" : "";
-            SetText(lastResultText, $"{outcome}    +{rounds.LastReward}g{damage}");
 
-            RebuildStatusLayout();
-        }
+            string note = (items != null && items.HasPending)
+                ? $"   <color=#FFC640>Item ready! ({items.PendingCount}) — inspect a unit to Equip</color>"
+                : "";
 
-        void RebuildStatusLayout()
-        {
-            if (statusTitle == null) return;
-            if (statusTitle.transform.parent is RectTransform statusPanel)
-                LayoutRebuilder.ForceRebuildLayoutImmediate(statusPanel);
-        }
-
-        void PrepareStatusPanel()
-        {
-            if (statusPanelPrepared)
-                return;
-
-            statusPanelPrepared = true;
-
-            PrepareStatusText(statusTitle, 28f);
-            PrepareStatusText(hpText, 22f);
-            PrepareStatusText(goldText, 22f);
-            PrepareStatusText(boardText, 22f);
-            PrepareStatusText(interestText, 22f);
-            PrepareStatusText(lastResultText, 20f);
-
-            if (statusTitle == null || statusTitle.transform.parent is not RectTransform statusPanel)
-                return;
-
-            statusPanel.sizeDelta = new Vector2(
-                Mathf.Max(statusPanel.sizeDelta.x, 360f),
-                Mathf.Max(statusPanel.sizeDelta.y, 190f));
-
-            if (statusPanel.TryGetComponent(out VerticalLayoutGroup layout))
-            {
-                layout.spacing = 5f;
-                layout.childControlHeight = true;
-                layout.childForceExpandHeight = false;
-            }
-
-            LayoutRebuilder.ForceRebuildLayoutImmediate(statusPanel);
-        }
-
-        static void PrepareStatusText(TMP_Text text, float preferredHeight)
-        {
-            if (text == null)
-                return;
-
-            text.gameObject.SetActive(true);
-            text.enabled = true;
-            text.alpha = 1f;
-            text.raycastTarget = false;
-            text.enableWordWrapping = false;
-            text.overflowMode = TextOverflowModes.Overflow;
-
-            if (text.TryGetComponent(out LayoutElement layout))
-            {
-                layout.minHeight = preferredHeight;
-                layout.preferredHeight = preferredHeight;
-                layout.flexibleHeight = 0f;
-            }
+            SetText(lastResultText, $"{outcome}    +{rounds.LastReward}g{damage}{note}");
         }
 
         void RefreshSynergies()
         {
-            if (synergyLines == null || synergyLines.Length < 4) return;
+            if (synergyLines == null) return;
 
             var s = SynergyEngine.ComputeFromBoard(grid);
-            SetSynergyLine(0, "Warrior", s.warriorCount, s.WarriorTier, "+20% HP", "+50% HP");
-            SetSynergyLine(1, "Mage", s.mageCount, s.MageTier, "+25% DMG", "+60% DMG");
-            SetSynergyLine(2, "Human", s.humanCount, s.HumanTier, "+15% ASPD", "+35% ASPD");
-            SetSynergyLine(3, "Beast", s.beastCount, s.BeastTier, "+20% DMG", "+45% DMG");
+            SetSynergyLine(0, "Warrior", s.warriorCount, s.WarriorTier,
+                SynergyEngine.DescribeWarrior(1), SynergyEngine.DescribeWarrior(2));
+            SetSynergyLine(1, "Mage", s.mageCount, s.MageTier,
+                SynergyEngine.DescribeMage(1), SynergyEngine.DescribeMage(2));
+            SetSynergyLine(2, "Human", s.humanCount, s.HumanTier,
+                SynergyEngine.DescribeHuman(1), SynergyEngine.DescribeHuman(2));
+            SetSynergyLine(3, "Beast", s.beastCount, s.BeastTier,
+                SynergyEngine.DescribeBeast(1), SynergyEngine.DescribeBeast(2));
+            SetSynergyLine(4, "Ranger", s.rangerCount, s.RangerTier,
+                SynergyEngine.DescribeRanger(1), SynergyEngine.DescribeRanger(2));
         }
 
         void SetSynergyLine(int index, string name, int count, int tier, string firstBonus, string secondBonus)
         {
+            if (index < 0 || index >= synergyLines.Length || synergyLines[index] == null) return;
+
             string color = ColorHex(tier > 0 ? GreenColor : MutedText);
             string bonus = tier switch
             {
@@ -359,8 +315,6 @@ namespace AutoChess
             SetActive(inspectorPanel, show);
             if (!show) return;
 
-            PrepareInspectorPanel();
-
             var u = inspector.Current;
             SetText(inspectorTitle, $"{u.displayName}  T{u.tier}");
             SetText(inspectorBody,
@@ -374,39 +328,19 @@ namespace AutoChess
                 $"Attack Speed: {u.attackSpeed:0.##}/s\n" +
                 $"Move Speed: {u.moveSpeed:0.#}");
 
+            if (u.equippedItem != null)
+                inspectorBody.text += $"\nItem: {u.equippedItem.itemName} (+{u.equippedItem.amount:0.#} {u.equippedItem.stat})";
+
             SetText(sellButtonLabel, $"Sell ({u.SellValue}g)");
             SetButton(sellButton, rounds.Phase == GamePhase.Prep && u.team == Team.Player);
-        }
 
-        void PrepareInspectorPanel()
-        {
-            if (inspectorPanelPrepared)
-                return;
-
-            inspectorPanelPrepared = true;
-
-            RectTransform panel = null;
-            if (inspectorPanel != null && inspectorPanel.transform is RectTransform inspectorRect)
-            {
-                panel = inspectorRect;
-                panel.sizeDelta = new Vector2(panel.sizeDelta.x, Mathf.Max(panel.sizeDelta.y, 370f));
-            }
-
-            if (inspectorBody == null)
-                return;
-
-            inspectorBody.enableWordWrapping = true;
-            inspectorBody.overflowMode = TextOverflowModes.Overflow;
-
-            if (inspectorBody.TryGetComponent(out LayoutElement layout))
-            {
-                layout.minHeight = 210f;
-                layout.preferredHeight = 210f;
-                layout.flexibleHeight = 1f;
-            }
-
-            if (panel != null)
-                LayoutRebuilder.ForceRebuildLayoutImmediate(panel);
+            bool canEquip = items != null && items.HasPending && u.team == Team.Player
+                            && rounds.Phase == GamePhase.Prep;
+            SetActive(equipButton != null ? equipButton.gameObject : null, canEquip);
+            if (canEquip)
+                SetText(equipButtonLabel, u.CanEquip
+                    ? $"Equip {items.PeekNextPending().itemName}"
+                    : $"Replace with {items.PeekNextPending().itemName}");
         }
 
         void RefreshGameOver()
@@ -435,6 +369,18 @@ namespace AutoChess
             RefreshUi();
         }
 
+        void EquipItemOnInspected()
+        {
+            if (inspector == null || inspector.Current == null || items == null) return;
+            var u = inspector.Current;
+            if (u.team != Team.Player || !items.HasPending) return;
+            var item = items.TakeNextPending();
+            if (item == null) return;
+            u.RemoveItem();   // clear any existing item so the new one replaces it
+            u.Equip(item);
+            RefreshUi();
+        }
+
         void HandleDamaged(Unit unit, float damage)
         {
             if (unit == null) return;
@@ -454,6 +400,12 @@ namespace AutoChess
             if (unit == null) return;
             SpawnFloater(unit.transform.position, $"T{unit.tier}!", GoldColor);
             CameraShake.Trigger(0.08f);
+        }
+
+        void HandleAbilityCast(Unit unit)
+        {
+            if (unit == null) return;
+            SpawnFloater(unit.transform.position, unit.ability.ToString(), new Color(0.6f, 0.8f, 1f));
         }
 
         void SpawnFloater(Vector3 worldPos, string text, Color color)
@@ -509,16 +461,7 @@ namespace AutoChess
         static void SetText(TMP_Text text, string value)
         {
             if (text == null) return;
-
-            text.gameObject.SetActive(true);
-            text.enabled = true;
-            text.alpha = 1f;
-
-            if (text.text != value)
-                text.text = value;
-
-            text.ForceMeshUpdate();
-            LayoutRebuilder.MarkLayoutForRebuild(text.rectTransform);
+            if (text.text != value) text.text = value;
         }
 
         static void SetActive(GameObject obj, bool active)
