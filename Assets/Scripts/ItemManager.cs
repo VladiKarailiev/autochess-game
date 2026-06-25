@@ -26,6 +26,8 @@ namespace AutoChess
         public void RollReward()
         {
             if (pool == null || pool.Count == 0) return;
+            // Only ever hold one pending reward; a new one replaces the old.
+            pending.Clear();
             pending.Add(pool[UnityEngine.Random.Range(0, pool.Count)]);
         }
 
